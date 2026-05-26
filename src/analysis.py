@@ -5,10 +5,10 @@ Module d'analyse - Post-traitement et comparaison des résultats FEM
 import numpy as np
 import matplotlib.pyplot as plt
 from pathlib import Path
-from config import PhysicalParameters as Phys, OutputParameters
-from geometry import TaperGeometry, DomainBuilder
-from meshing import MeshGenerator
-from fem_solver import FEMSolver2D, FieldCalculator
+from .config import PhysicalParameters as Phys, OutputParameters
+from .geometry import TaperGeometry, DomainBuilder
+from .meshing import MeshGenerator
+from .fem_solver import FEMSolver2D, FieldCalculator
 
 
 class SimulationRunner:

@@ -4,7 +4,7 @@ Module de génération des géométries de taper pour la simulation FEM
 
 import numpy as np
 import matplotlib.pyplot as plt
-from config import PhysicalParameters as Phys, TaperProfile, OutputParameters
+from .config import PhysicalParameters as Phys, TaperProfile, OutputParameters
 
 
 class TaperGeometry:

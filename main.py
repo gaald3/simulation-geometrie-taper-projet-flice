@@ -12,11 +12,8 @@ import sys
 import argparse
 from pathlib import Path
 
-# Ajouter le répertoire src au path
-sys.path.insert(0, str(Path(__file__).parent))
-
-from analysis import SimulationRunner, ReportGenerator
-from config import PhysicalParameters as Phys, OutputParameters
+from src.analysis import SimulationRunner, ReportGenerator
+from src.config import PhysicalParameters as Phys, OutputParameters
 
 
 def main():

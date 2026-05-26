@@ -7,7 +7,7 @@ import numpy as np
 from scipy.sparse import csr_matrix, lil_matrix, diags, coo_matrix
 from scipy.sparse.linalg import eigsh, spsolve
 import matplotlib.pyplot as plt
-from config import PhysicalParameters as Phys, NumericalParameters as Num
+from .config import PhysicalParameters as Phys, NumericalParameters as Num
 
 
 class FEMSolver2D:
@@ -98,53 +98,59 @@ class FEMSolver2D:
         Calcule la matrice de raideur locale pour un élément triangulaire
         Prend en compte la géométrie axisymétrique
         
-        Équation: ∫∫ n² k₀² |∇u|² dA en coordonnées axisymétriques
+        Équation: ∫∫ n² k₀² |∇u|² r dr dz en coordonnées axisymétriques
         """
-        # Gradients des fonctions de base linéaires
-        a1 = r2*z3 - r3*z2
-        a2 = r3*z1 - r1*z3
-        a3 = r1*z2 - r2*z1
+        # Gradients des fonctions de base linéaires (basés sur les coordonnées barycentriques)
+        # Pour un triangle P1, les gradients sont constants sur l'élément
+        det = (r2 - r1) * (z3 - z1) - (r3 - r1) * (z2 - z1)
         
-        b1 = z2 - z3
-        b2 = z3 - z1
-        b3 = z1 - z2
+        if abs(det) < 1e-30:
+            return np.zeros((3, 3), dtype=np.complex128)
         
-        c1 = r3 - r2
-        c2 = r1 - r3
-        c3 = r2 - r1
+        # Gradients en r et z pour chaque fonction de base
+        grad_r = np.array([
+            (z2 - z3) / det,
+            (z3 - z1) / det,
+            (z1 - z2) / det
+        ])
         
-        denom = 2 * area
+        grad_z = np.array([
+            (r3 - r2) / det,
+            (r1 - r3) / det,
+            (r2 - r1) / det
+        ])
         
-        # Matrice locale (6x6 pour 2 DOF par nœud)
+        # Matrice locale de raideur
         Ke = np.zeros((3, 3), dtype=np.complex128)
         
         k0 = Phys.k0
-        n2_k02 = (n_index * k0)**2
+        n2_k02 = (n_index * k0) ** 2
         
-        # Intégration: gradient * gradient * rayon_moyen
+        # Intégration: (grad_r * grad_r + grad_z * grad_z) * area * r_avg * n²k₀²
         for i in range(3):
             for j in range(3):
-                b_dot_b = b1*[b1, b2, b3][i] + b2*[b1, b2, b3][j]
-                c_dot_c = c1*[c1, c2, c3][i] + c2*[c1, c2, c3][j]
-                
-                grad_prod = (b_dot_b + c_dot_c) / (denom**2)
-                
-                # Facteur axisymétrique
-                Ke[i, j] = n2_k02 * grad_prod * area * r_avg
+                grad_dot = grad_r[i] * grad_r[j] + grad_z[i] * grad_z[j]
+                Ke[i, j] = n2_k02 * grad_dot * area * r_avg
         
         return Ke
     
     def _local_mass_matrix(self, r1, z1, r2, z2, r3, z3, area, r_avg):
         """
-        Calcule la matrice de masse locale
+        Calcule la matrice de masse locale pour un élément triangulaire
         Intègre la fonction elle-même: ∫∫ u * v * r dA
         """
-        # Facteur d'intégration: aire / 6 pour coordonnées linéaires
-        # Avec axisymétrie: aire/6 * r_avg
-        factor = area / 6.0 * r_avg
+        # Pour des fonctions P1 linéaires, l'intégrale donne:
+        # ∫∫ φ_i * φ_j * r dr dz = area * r_avg * M_ref[i,j]
+        # où M_ref est la matrice de masse de référence sur l'élément standard
         
-        Me = np.ones((3, 3), dtype=np.complex128) * factor
-        np.fill_diagonal(Me, factor * 2)
+        # Matrice de masse de référence pour P1 (sans facteur r_avg)
+        M_ref = np.array([
+            [2, 1, 1],
+            [1, 2, 1],
+            [1, 1, 2]
+        ], dtype=np.float64) / 12.0
+        
+        Me = M_ref * area * r_avg
         
         return Me
     

@@ -6,7 +6,7 @@ Génère un maillage adapté pour la simulation du taper
 import numpy as np
 import gmsh
 from pathlib import Path
-from config import PhysicalParameters as Phys, NumericalParameters as Num, OutputParameters
+from .config import PhysicalParameters as Phys, NumericalParameters as Num, OutputParameters
 
 
 class MeshGenerator:
@@ -43,60 +43,65 @@ class MeshGenerator:
         z_coords = self.geometry.z_coords
         r_profile = self.geometry.radius_profile
         
-        # ===== CRÉATION DE LA GÉOMÉTRIE =====
-        
-        # 1. Axe de symétrie (r = 0, de z=0 à z=L)
         z_min, z_max = 0, Phys.taper_length
-        pt_axis_top = gmsh.model.geo.addPoint(0, z_max, 0, Num.mesh_element_size_core)
-        pt_axis_bot = gmsh.model.geo.addPoint(0, z_min, 0, Num.mesh_element_size_core)
-        line_axis = gmsh.model.geo.addLine(pt_axis_bot, pt_axis_top)
-        
-        # 2. Surface du taper - points sur la frontière
-        taper_points = []
-        
-        # Bottom (z=0)
-        pt_start = gmsh.model.geo.addPoint(r_profile[0], z_coords[0], 0, 
-                                          Num.mesh_element_size_core)
-        taper_points.append(pt_start)
-        
-        # Points intermédiaires le long du profil
-        for i in range(1, len(z_coords)-1, max(1, len(z_coords)//50)):  # ~50 points
-            pt = gmsh.model.geo.addPoint(r_profile[i], z_coords[i], 0,
-                                        Num.mesh_element_size_core)
-            taper_points.append(pt)
-        
-        # Top (z=L)
-        pt_end = gmsh.model.geo.addPoint(r_profile[-1], z_coords[-1], 0,
-                                        Num.mesh_element_size_core)
-        taper_points.append(pt_end)
-        
-        # 3. Créer la ligne du profil du taper
-        taper_lines = []
-        for i in range(len(taper_points)-1):
-            line = gmsh.model.geo.addLine(taper_points[i], taper_points[i+1])
-            taper_lines.append(line)
-        taper_profile_line = taper_lines[0]
-        
-        # 4. Rayon externe (région de calcul)
         r_external = max(Phys.fiber_cladding_radius, 2*max(r_profile)) + Num.pml_thickness
         
-        # Sortie (top) - rayon externe
-        pt_ext_top = gmsh.model.geo.addPoint(r_external, z_max, 0, 
-                                            Num.mesh_element_size_far_field)
-        # Entrée (bottom) - rayon externe  
+        # ===== POINTS CLÉS =====
+        
+        # Axe de symétrie
+        pt_axis_bot = gmsh.model.geo.addPoint(0, z_min, 0, Num.mesh_element_size_core)
+        pt_axis_top = gmsh.model.geo.addPoint(0, z_max, 0, Num.mesh_element_size_core)
+        
+        # Profil du taper - points discrétisés
+        n_sample = 25
+        indices_sample = np.linspace(1, len(z_coords)-1, n_sample, dtype=int)
+        
+        taper_pts_start = gmsh.model.geo.addPoint(r_profile[0], z_coords[0], 0,
+                                                   Num.mesh_element_size_core)
+        
+        profile_points = [taper_pts_start]
+        for idx in indices_sample:
+            pt = gmsh.model.geo.addPoint(r_profile[idx], z_coords[idx], 0,
+                                         Num.mesh_element_size_core)
+            profile_points.append(pt)
+        
+        taper_pts_end = gmsh.model.geo.addPoint(r_profile[-1], z_coords[-1], 0,
+                                                Num.mesh_element_size_core)
+        profile_points.append(taper_pts_end)
+        
+        # Rectangle externe
         pt_ext_bot = gmsh.model.geo.addPoint(r_external, z_min, 0,
                                             Num.mesh_element_size_far_field)
+        pt_ext_top = gmsh.model.geo.addPoint(r_external, z_max, 0,
+                                            Num.mesh_element_size_far_field)
+        
+        # ===== LIGNES =====
+        
+        # Axe de symétrie
+        line_axis = gmsh.model.geo.addLine(pt_axis_bot, pt_axis_top)
+        
+        # Profil du taper
+        profile_lines = []
+        for i in range(len(profile_points) - 1):
+            line = gmsh.model.geo.addLine(profile_points[i], profile_points[i+1])
+            profile_lines.append(line)
         
         # Lignes externes
-        line_ext_bottom = gmsh.model.geo.addLine(pt_end, pt_ext_bot)
-        line_ext_top = gmsh.model.geo.addLine(pt_ext_top, pt_axis_top)
-        line_ext_right = gmsh.model.geo.addLine(pt_ext_bot, pt_ext_top)
+        line_bottom = gmsh.model.geo.addLine(pt_axis_bot, pt_ext_bot)
+        line_right = gmsh.model.geo.addLine(pt_ext_bot, pt_ext_top)
+        line_top = gmsh.model.geo.addLine(pt_ext_top, pt_axis_top)
+        line_right_profile = gmsh.model.geo.addLine(taper_pts_end, pt_ext_top)
+        line_left_profile = gmsh.model.geo.addLine(taper_pts_start, pt_axis_bot)
         
-        # 5. Créer les surfaces
-        # Boucle pour le domaine de calcul
-        profile_loop = gmsh.model.geo.addCurveLoop([line_axis] + taper_lines + 
-                                                    [line_ext_bottom, line_ext_right, 
-                                                     line_ext_top])
+        # ===== BOUCLE FERMÉE =====
+        
+        # Boucle: axe → profil → droite → haut → gauche → bas
+        all_lines = [line_axis] + profile_lines + [line_right_profile, 
+                                                    line_top, line_right, 
+                                                    line_bottom, line_left_profile]
+        
+        # Créer une boucle fermée simple  
+        profile_loop = gmsh.model.geo.addCurveLoop(all_lines)
         surface = gmsh.model.geo.addPlaneSurface([profile_loop])
         
         # Synchroniser la géométrie
@@ -165,12 +170,18 @@ class MeshGenerator:
         nodes = node_coords.reshape(-1, 3)
         
         # Récupérer les éléments (triangles 2D)
-        elem_tags, elem_connectivity = self.gmsh_model.mesh.getElements(dim=2, tag=1)
+        elem_type, elem_tags, elem_connectivity = self.gmsh_model.mesh.getElements(dim=2, tag=1)
         
-        if len(elem_tags) == 0:
+        if len(elem_tags) == 0 or len(elem_type) == 0:
             raise ValueError("Aucun élément 2D trouvé dans le maillage")
         
-        elements = elem_connectivity[0].reshape(-1, 3) - 1  # Indexation 0-based
+        # Adapter à la structure retournée
+        if isinstance(elem_connectivity, list):
+            connectivity = elem_connectivity[0] if elem_connectivity else np.array([])
+        else:
+            connectivity = elem_connectivity
+        
+        elements = connectivity.reshape(-1, 3) - 1  # Indexation 0-based
         
         mesh_data = {
             'nodes': nodes[:, :2],  # Seulement (r, z)
