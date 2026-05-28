@@ -30,97 +30,71 @@ class MeshGenerator:
         
     def create_2d_axisymmetric_mesh(self):
         """
-        Crée un maillage 2D axisymétrique (r, z)
-        Exploite la symétrie cylindrique du problème
+        Crée un maillage 2D axisymétrique (r, z) simplifié
         """
         gmsh.initialize()
         gmsh.model.add(f"taper_{self.profile_name}")
         
         # Récupérer le profil du taper
         if self.geometry.radius_profile is None:
-            self.geometry.generate_profile(n_points=200)
+            self.geometry.generate_profile(n_points=100)
         
         z_coords = self.geometry.z_coords
         r_profile = self.geometry.radius_profile
         
         z_min, z_max = 0, Phys.taper_length
-        r_external = max(Phys.fiber_cladding_radius, 2*max(r_profile)) + Num.pml_thickness
+        r_max_profile = np.max(r_profile)
+        r_external = max(Phys.fiber_cladding_radius, 2*r_max_profile)
         
-        # ===== POINTS CLÉS =====
+        # ===== GÉOMÉTRIE SIMPLIFIÉE =====
+        # Rectangle avec profil du taper comme arête gauche
         
-        # Axe de symétrie
-        pt_axis_bot = gmsh.model.geo.addPoint(0, z_min, 0, Num.mesh_element_size_core)
-        pt_axis_top = gmsh.model.geo.addPoint(0, z_max, 0, Num.mesh_element_size_core)
+        # Coins du rectangle externe
+        pt_bot_left = gmsh.model.geo.addPoint(0, z_min, 0, Num.mesh_element_size_core)
+        pt_bot_right = gmsh.model.geo.addPoint(r_external, z_min, 0, Num.mesh_element_size_far_field)
+        pt_top_right = gmsh.model.geo.addPoint(r_external, z_max, 0, Num.mesh_element_size_far_field)
+        pt_top_left = gmsh.model.geo.addPoint(0, z_max, 0, Num.mesh_element_size_core)
         
-        # Profil du taper - points discrétisés
-        n_sample = 25
-        indices_sample = np.linspace(1, len(z_coords)-1, n_sample, dtype=int)
+        # Arêtes du rectangle externe
+        line_bottom = gmsh.model.geo.addLine(pt_bot_left, pt_bot_right)
+        line_right = gmsh.model.geo.addLine(pt_bot_right, pt_top_right)
+        line_top = gmsh.model.geo.addLine(pt_top_right, pt_top_left)
+        line_left = gmsh.model.geo.addLine(pt_top_left, pt_bot_left)
         
-        taper_pts_start = gmsh.model.geo.addPoint(r_profile[0], z_coords[0], 0,
-                                                   Num.mesh_element_size_core)
+        # Créer une spline pour le profil du taper (plus robuste)
+        # Utiliser moins de points pour éviter les problèmes de tolérance
+        n_sample = 15
+        indices_sample = np.unique(np.linspace(0, len(z_coords)-1, n_sample, dtype=int))
         
-        profile_points = [taper_pts_start]
+        profile_points = []
         for idx in indices_sample:
             pt = gmsh.model.geo.addPoint(r_profile[idx], z_coords[idx], 0,
                                          Num.mesh_element_size_core)
             profile_points.append(pt)
         
-        taper_pts_end = gmsh.model.geo.addPoint(r_profile[-1], z_coords[-1], 0,
-                                                Num.mesh_element_size_core)
-        profile_points.append(taper_pts_end)
-        
-        # Rectangle externe
-        pt_ext_bot = gmsh.model.geo.addPoint(r_external, z_min, 0,
-                                            Num.mesh_element_size_far_field)
-        pt_ext_top = gmsh.model.geo.addPoint(r_external, z_max, 0,
-                                            Num.mesh_element_size_far_field)
-        
-        # ===== LIGNES =====
-        
-        # Axe de symétrie
-        line_axis = gmsh.model.geo.addLine(pt_axis_bot, pt_axis_top)
-        
-        # Profil du taper
+        # Créer les lignes du profil
         profile_lines = []
         for i in range(len(profile_points) - 1):
             line = gmsh.model.geo.addLine(profile_points[i], profile_points[i+1])
             profile_lines.append(line)
         
-        # Lignes externes
-        line_bottom = gmsh.model.geo.addLine(pt_axis_bot, pt_ext_bot)
-        line_right = gmsh.model.geo.addLine(pt_ext_bot, pt_ext_top)
-        line_top = gmsh.model.geo.addLine(pt_ext_top, pt_axis_top)
-        line_right_profile = gmsh.model.geo.addLine(taper_pts_end, pt_ext_top)
-        line_left_profile = gmsh.model.geo.addLine(taper_pts_start, pt_axis_bot)
+        # Fermer le profil (revenir à l'axe)
+        line_close_left = gmsh.model.geo.addLine(profile_points[-1], profile_points[0])
         
-        # ===== BOUCLE FERMÉE =====
-        
-        # Boucle: axe → profil → droite → haut → gauche → bas
-        all_lines = [line_axis] + profile_lines + [line_right_profile, 
-                                                    line_top, line_right, 
-                                                    line_bottom, line_left_profile]
-        
-        # Créer une boucle fermée simple  
-        profile_loop = gmsh.model.geo.addCurveLoop(all_lines)
-        surface = gmsh.model.geo.addPlaneSurface([profile_loop])
+        # Créer la surface du domaine (rectangle entier)
+        loop = gmsh.model.geo.addCurveLoop([line_bottom, line_right, line_top, line_left])
+        surface = gmsh.model.geo.addPlaneSurface([loop])
         
         # Synchroniser la géométrie
         gmsh.model.geo.synchronize()
         
         # ===== AFFECTATION DES TAILLES D'ÉLÉMENTS =====
-        
-        # Raffinement fin près de la fibre
-        r_refine = max(r_profile) * 1.5
         gmsh.model.mesh.setSize(gmsh.model.getEntities(0), Num.mesh_element_size_core)
-        
-        # Raffinement moins fin loin du cœur
-        gmsh.model.mesh.setSize([(0, pt_ext_top), (0, pt_ext_bot)], 
+        gmsh.model.mesh.setSize([(0, pt_top_right), (0, pt_bot_right)], 
                                Num.mesh_element_size_far_field)
         
         # ===== GÉNÉRATION DU MAILLAGE =====
         gmsh.option.setNumber("Mesh.Algorithm", 6)  # Frontal-Delaunay
-        gmsh.option.setNumber("Mesh.SubdivisionAlgorithm", 1)  # Simplicial
-        
         gmsh.model.mesh.generate(2)  # Maillage 2D
         gmsh.model.mesh.optimize("Laplace2D")  # Optimisation Laplace
         
@@ -130,25 +104,21 @@ class MeshGenerator:
         gmsh.model.addPhysicalGroup(2, [surface], 1)
         gmsh.model.setPhysicalName(2, 1, "Domain")
         
-        # Groupe de frontière - Entrée (z=0, r externe)
-        gmsh.model.addPhysicalGroup(1, [line_axis, line_ext_bottom], 2)
+        # Groupe de frontière - Entrée (z=0)
+        gmsh.model.addPhysicalGroup(1, [line_bottom], 2)
         gmsh.model.setPhysicalName(1, 2, "Inlet")
         
-        # Groupe de frontière - Sortie (z=L, r externe)
-        gmsh.model.addPhysicalGroup(1, [line_ext_top], 3)
+        # Groupe de frontière - Sortie (z=L)
+        gmsh.model.addPhysicalGroup(1, [line_top], 3)
         gmsh.model.setPhysicalName(1, 3, "Outlet")
         
-        # Groupe de frontière - Axe de symétrie
-        gmsh.model.addPhysicalGroup(1, [line_axis], 4)
+        # Groupe de frontière - Axe de symétrie (r=0)
+        gmsh.model.addPhysicalGroup(1, [line_left], 4)
         gmsh.model.setPhysicalName(1, 4, "SymmetryAxis")
         
         # Groupe de frontière - Droite (r=r_ext)
-        gmsh.model.addPhysicalGroup(1, [line_ext_right], 5)
+        gmsh.model.addPhysicalGroup(1, [line_right], 5)
         gmsh.model.setPhysicalName(1, 5, "FarField")
-        
-        # Groupe pour le profil du taper (interface air-silice)
-        gmsh.model.addPhysicalGroup(1, taper_lines, 6)
-        gmsh.model.setPhysicalName(1, 6, "TaperInterface")
         
         self.gmsh_model = gmsh.model
         
