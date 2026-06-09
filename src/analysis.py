@@ -80,7 +80,8 @@ class SimulationRunner:
         print("ÉTAPE 2: Résolution FEM")
         print("-"*70)
         
-        solver = FEMSolver2D(mesh_data)
+        # Passer la géométrie du taper au solveur pour la distinction air/cœur/gaine
+        solver = FEMSolver2D(mesh_data, taper_geometry=geom)
         solver.assemble_matrices()
         solver.apply_boundary_conditions()
         

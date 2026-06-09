@@ -32,8 +32,8 @@ Exemples d'utilisation:
         """
     )
     
-    parser.add_argument('--profile', nargs='+', default=['linear', 'parabolic', 'exponential'],
-                       help='Profils à simuler (linear, parabolic, exponential, photonic_wire_bond)')
+    parser.add_argument('--profile', nargs='+', default=['linear', 'parabolic', 'exponential', 'sigmoidal'],
+                       help='Profils à simuler (linear, parabolic, exponential, sigmoidal, photonic_wire_bond)')
     parser.add_argument('--output', default=OutputParameters.output_dir,
                        help='Répertoire de sortie')
     parser.add_argument('--no-plot', action='store_true',

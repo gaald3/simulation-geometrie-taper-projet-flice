@@ -19,11 +19,11 @@ class PhysicalParameters:
     # Fibre SMF28
     fiber_cladding_diameter = 125e-6  # m (125 µm)
     fiber_cladding_radius = fiber_cladding_diameter / 2
-    n_cladding = 1.439  # Indice de la gaine
+    n_cladding = 1.4440  # Indice de la gaine (SMF-28 @ 1550nm)
     
     fiber_core_diameter = 8.5e-6  # m (8.5 µm)
     fiber_core_radius = fiber_core_diameter / 2
-    n_core = 1.444  # Indice du cœur
+    n_core = 1.4492  # Indice du cœur (SMF-28 @ 1550nm)
     
     # Taper
     taper_length = 200e-6  # m (200 µm max)
@@ -32,16 +32,16 @@ class PhysicalParameters:
     taper_radius_final = taper_diameter_final / 2
     
     # Air dans le taper
-    n_air = 1.0
+    n_air = 1.0000
 
 
 class NumericalParameters:
     """Paramètres numériques pour la FEM"""
     
     # Maillage
-    mesh_element_size_core = 0.1e-6  # m (0.1 µm) - Raffinement fin au cœur
-    mesh_element_size_cladding = 0.5e-6  # m (0.5 µm) - Plus large en gaine
-    mesh_element_size_far_field = 2e-6  # m (2 µm) - Région lointaine
+    mesh_element_size_core = 1.0e-6  # m (1 µm) - Maillage rapide ~1000 éléments
+    mesh_element_size_cladding = 2.0e-6  # m (2 µm) - Plus large en gaine
+    mesh_element_size_far_field = 5e-6  # m (5 µm) - Région lointaine
     
     # Domaine de calcul
     pml_thickness = 10e-6  # m (épaisseur de la couche absorbante PML)
@@ -76,6 +76,19 @@ class TaperProfile:
         exp_factor = np.exp(-3 * normalized_z)
         return r_final + (r_initial - r_final) * exp_factor
     
+    @staticmethod
+    def sigmoidal(z, z_max, r_initial, r_final):
+        """
+        Profil sigmoidal en forme de S (transition lisse et progressive)
+        Plus adiabatique que linéaire, utile pour réduire les pertes
+        """
+        normalized_z = z / z_max
+        # Fonction sigmoïde centrée au milieu, raideur k=10
+        k = 10.0  # Contrôle la raideur de la transition
+        z_mid = 0.5
+        sigmoid = 1.0 / (1.0 + np.exp(-k * (normalized_z - z_mid)))
+        return r_initial - (r_initial - r_final) * sigmoid
+
     @staticmethod
     def photonic_wire_bond(z, z_max, r_initial, r_final):
         """

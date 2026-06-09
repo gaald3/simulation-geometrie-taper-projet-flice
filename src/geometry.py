@@ -57,6 +57,11 @@ class TaperGeometry:
                                              Phys.fiber_core_radius,
                                              Phys.taper_radius_final)
         
+        elif self.profile_type == "sigmoidal":
+            radius = TaperProfile.sigmoidal(z, Phys.taper_length,
+                                           Phys.fiber_core_radius,
+                                           Phys.taper_radius_final)
+        
         elif self.profile_type == "photonic_wire_bond":
             radius = np.array([TaperProfile.photonic_wire_bond(zi, Phys.taper_length,
                                                               Phys.fiber_core_radius,
@@ -98,6 +103,29 @@ class TaperGeometry:
         adiabaticity = 1.0 / (n_eff * Phys.k0 * max_dR_dz + 1e-20)
         
         return adiabaticity, max_dR_dz
+    
+    def get_radius_at_z(self, z_value):
+        """
+        Retourne le rayon du taper par interpolation linéaire pour une position z donnée
+        Utilisée pour déterminer si un point est à l'intérieur ou l'extérieur du taper
+        
+        Parameters:
+        -----------
+        z_value : float
+            Position axiale (en mètres)
+        
+        Returns:
+        --------
+        radius : float
+            Rayon du taper à cette position
+        """
+        if self.radius_profile is None:
+            self.generate_profile()
+        
+        # Interpolation linéaire
+        radius = np.interp(z_value, self.z_coords, self.radius_profile)
+        
+        return radius
     
     def plot_geometry(self, save=False):
         """
